@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from factor_analyzer.rotator import Rotator
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
@@ -34,9 +35,12 @@ def build_cultural_map() -> None:
 
     pca = PCA(n_components=2, random_state=0)
     pca.fit(scaled)
-    scores = pca.transform(scaled)
+    loadings_array = pca.components_.T * np.sqrt(pca.explained_variance_)
+    rotated_loadings = Rotator(method="varimax").fit_transform(loadings_array)
+    rotation = np.linalg.lstsq(loadings_array, rotated_loadings, rcond=None)[0]
+    scores = pca.transform(scaled) @ rotation
     loadings = pd.DataFrame(
-        pca.components_.T * np.sqrt(pca.explained_variance_),
+        rotated_loadings,
         index=ANALYSIS_VARS,
         columns=["component_1", "component_2"],
     )
