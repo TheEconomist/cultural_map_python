@@ -1,10 +1,5 @@
-from __future__ import annotations
-
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
-
 
 ANALYSIS_VARS = [
     "A008",
@@ -18,34 +13,14 @@ ANALYSIS_VARS = [
     "Y002",
     "Y003",
 ]
-PAIRWISE_MISSING_VARS = ANALYSIS_VARS[:-1]
-Y003_MISSING_VAR = "Y003"
-DEFAULT_INPUT_CANDIDATES = [
-    Path(__file__).resolve().parent / "../data/wvs_evs_time_series.csv",
-    Path(__file__).resolve().parent / "data/wvs_evs_time_series.csv",
-]
-OUTPUT_PATH: Path | None = None
 WEIGHT_VAR = "S017"
 
 
-def resolve_input_path() -> Path:
-    for candidate in DEFAULT_INPUT_CANDIDATES:
-        candidate = candidate.resolve()
-        if candidate.exists():
-            return candidate
-
-    searched = "\n".join(str(path.resolve()) for path in DEFAULT_INPUT_CANDIDATES)
-    raise FileNotFoundError(f"Input dataset not found. Checked:\n{searched}")
-
-
-def apply_spss_missing_values(df: pd.DataFrame) -> pd.DataFrame:
-    data = df.copy()
-    data[WEIGHT_VAR] = pd.to_numeric(data[WEIGHT_VAR], errors="coerce")
-    data[ANALYSIS_VARS] = data[ANALYSIS_VARS].apply(pd.to_numeric, errors="coerce")
-    for column in PAIRWISE_MISSING_VARS:
-        data[column] = data[column].mask(data[column].between(-9, -1))
-    data[Y003_MISSING_VAR] = data[Y003_MISSING_VAR].mask(data[Y003_MISSING_VAR] == -5)
-    return data
+def apply_spss_missing_values(df: pd.DataFrame):
+    for column in ANALYSIS_VARS[:-1]:
+        df[column] = df[column].mask(df[column].between(-9, -1))
+    df["Y003"] = df["Y003"].mask(df["Y003"] == -5)
+    return df
 
 
 def pca_loadings(corr: np.ndarray, n_factors: int = 2) -> tuple[np.ndarray, np.ndarray]:
@@ -58,13 +33,13 @@ def pca_loadings(corr: np.ndarray, n_factors: int = 2) -> tuple[np.ndarray, np.n
 
 
 def varimax_kaiser(
-    loadings: np.ndarray,
-    gamma: float = 1.0,
-    q: int = 25,
-    tol: float = 1e-8,
+        loadings: np.ndarray,
+        gamma: float = 1.0,
+        q: int = 25,
+        tol: float = 1e-8,
 ) -> tuple[np.ndarray, np.ndarray]:
     p, k = loadings.shape
-    communalities = np.sqrt((loadings**2).sum(axis=1))
+    communalities = np.sqrt((loadings ** 2).sum(axis=1))
     communalities[communalities == 0] = 1.0
 
     normalized = loadings / communalities[:, None]
@@ -74,7 +49,7 @@ def varimax_kaiser(
     for _ in range(q):
         rotated = normalized @ rotation
         basis = normalized.T @ (
-            rotated**3 - (gamma / p) * rotated @ np.diag(np.diag(rotated.T @ rotated))
+                rotated ** 3 - (gamma / p) * rotated @ np.diag(np.diag(rotated.T @ rotated))
         )
         u, singular_values, vh = np.linalg.svd(basis)
         rotation = u @ vh
@@ -143,11 +118,11 @@ def weighted_pairwise_correlation_matrix(data: pd.DataFrame, weights: pd.Series)
 
 
 def regression_scores(
-    clean_data: pd.DataFrame,
-    case_weights: pd.Series,
-    corr: np.ndarray,
-    rotated_loadings: np.ndarray,
-) -> pd.DataFrame:
+        clean_data: pd.DataFrame,
+        case_weights: pd.Series,
+        corr: np.ndarray,
+        rotated_loadings: np.ndarray,
+) -> np.ndarray:
     means = {}
     stds = {}
     for column in ANALYSIS_VARS:
@@ -168,8 +143,7 @@ def regression_scores(
     score_array = np.full((len(clean_data), 2), np.nan)
     score_array[complete_case_mask.to_numpy(), :] = standardized.loc[complete_case_mask].to_numpy() @ weights
 
-    scores = pd.DataFrame(score_array, columns=["fac1_1", "fac2_1"], index=clean_data.index)
-    return scores
+    return score_array
 
 
 def blank_small_loadings(loadings: pd.DataFrame, threshold: float = 0.3) -> pd.DataFrame:
@@ -199,61 +173,49 @@ def build_means_table(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index("S025")
 
 
-def main() -> None:
-    input_path = resolve_input_path()
+def build_cultural_map(input_path: str, output_path: str) -> None:
+    df = pd.read_csv(input_path, low_memory=False, na_values=["", " "])
 
-    raw = pd.read_csv(input_path, low_memory=False, na_values=["", " "])
-    clean = apply_spss_missing_values(raw)
-    case_weights = clean[WEIGHT_VAR]
+    """
+    MISSING VALUES a008 a165 e018 e025 f063 f118 f120 g006 y002 (-9 to -1).
+    MISSING  VALUES y003 (-5).
+    """
+    apply_spss_missing_values(df)
 
-    corr_df = weighted_pairwise_correlation_matrix(clean[ANALYSIS_VARS], case_weights)
+    """
+    /MISSING  PAIRWISE
+    """
+    case_weights = df[WEIGHT_VAR]
+    corr_df = weighted_pairwise_correlation_matrix(df[ANALYSIS_VARS], case_weights)
+
+    """
+    /CRITERIA FACTORS(2) ITERATE(25)
+    /EXTRACTION PC
+    /CRITERIA ITERATE(25)
+    /ROTATION VARIMAX
+    /SAVE REG(ALL)
+    /METHOD=CORRELATION.
+    RENAME VARIABLES (fac2_1=tradrat5) (fac1_1=survself).
+    """
     eigenvalues, initial_loadings = pca_loadings(corr_df.to_numpy(), n_factors=2)
     rotated_loadings, _ = varimax_kaiser(initial_loadings, q=25)
     rotated_loadings, factor_map = orient_rotated_factors(rotated_loadings)
+    score_array = regression_scores(df, case_weights, corr_df.to_numpy(), rotated_loadings)
+    scores = pd.DataFrame(score_array, columns=["survself", "tradrat5"], index=df.index)
 
-    scores = regression_scores(clean, case_weights, corr_df.to_numpy(), rotated_loadings)
-    renamed_scores = pd.DataFrame(index=scores.index)
-    renamed_scores["survself"] = scores.iloc[:, factor_map["survself"]]
-    renamed_scores["tradrat5"] = scores.iloc[:, factor_map["tradrat5"]]
+    """
+    COMPUTE TradAgg = 1.61 * TradRat5  - .1 .
+    COMPUTE SurvSAgg = 1.81 * SurvSelf  + .038 .
+    """
+    df["TradAgg"] = 1.61 * scores["tradrat5"] - 0.1
+    df["SurvSAgg"] = 1.81 * scores["survself"] + 0.038
 
-    result = raw.copy()
-    result["survself"] = renamed_scores["survself"]
-    result["tradrat5"] = renamed_scores["tradrat5"]
-    result["TradAgg"] = 1.61 * result["tradrat5"] - 0.1
-    result["SurvSAgg"] = 1.81 * result["survself"] + 0.038
-
-    initial_loadings_df = pd.DataFrame(
-        initial_loadings,
-        index=ANALYSIS_VARS,
-        columns=["Component 1", "Component 2"],
-    )
-    rotated_loadings_df = pd.DataFrame(
-        rotated_loadings,
-        index=ANALYSIS_VARS,
-        columns=["Factor 1", "Factor 2"],
-    )
-    means_table = build_means_table(result)
-
-    print(f"Input dataset: {input_path}")
-    print()
-    print("Eigenvalues")
-    print(pd.Series(eigenvalues, index=["Component 1", "Component 2"]).to_string(float_format=lambda x: f"{x:.6f}"))
-    print()
-    print("Initial component loadings")
-    print(initial_loadings_df.to_string(float_format=lambda x: f"{x:.6f}"))
-    print()
-    print("Rotated loadings (Varimax with Kaiser normalization, blank if |loading| < .3)")
-    print(blank_small_loadings(rotated_loadings_df).to_string())
-    print()
-    print("Means table by S025")
-    print(means_table.to_string(float_format=lambda x: f"{x:.6f}"))
-
-    if OUTPUT_PATH is not None:
-        output_path = OUTPUT_PATH.expanduser().resolve()
-        result.to_csv(output_path, index=False)
-        print()
-        print(f"Saved rescored dataset to: {output_path}")
+    """
+    MEANS TABLES=TradAgg SurvSAgg BY S025 /CELLS MEAN.
+    """
+    means_table = build_means_table(df).dropna(how="any")
+    means_table.to_csv(output_path)
 
 
 if __name__ == "__main__":
-    main()
+    build_cultural_map("./data/wvs_evs_time_series.csv", "./output/cultural_map.csv")
