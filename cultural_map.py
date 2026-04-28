@@ -25,6 +25,7 @@ DEFAULT_INPUT_CANDIDATES = [
     Path(__file__).resolve().parent / "data/wvs_evs_time_series.csv",
 ]
 OUTPUT_PATH: Path | None = None
+WEIGHT_VAR = "S017"
 
 
 def resolve_input_path() -> Path:
@@ -39,6 +40,7 @@ def resolve_input_path() -> Path:
 
 def apply_spss_missing_values(df: pd.DataFrame) -> pd.DataFrame:
     data = df.copy()
+    data[WEIGHT_VAR] = pd.to_numeric(data[WEIGHT_VAR], errors="coerce")
     data[ANALYSIS_VARS] = data[ANALYSIS_VARS].apply(pd.to_numeric, errors="coerce")
     for column in PAIRWISE_MISSING_VARS:
         data[column] = data[column].mask(data[column].between(-9, -1))
@@ -99,13 +101,64 @@ def orient_rotated_factors(rotated_loadings: np.ndarray) -> tuple[np.ndarray, di
     return oriented, {"survself": surv_idx, "tradrat5": trad_idx}
 
 
+def weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
+    return np.sum(weights * values) / np.sum(weights)
+
+
+def weighted_std(values: np.ndarray, weights: np.ndarray) -> float:
+    mean = weighted_mean(values, weights)
+    variance = np.sum(weights * (values - mean) ** 2) / np.sum(weights)
+    return float(np.sqrt(variance))
+
+
+def weighted_pairwise_correlation_matrix(data: pd.DataFrame, weights: pd.Series) -> pd.DataFrame:
+    corr = pd.DataFrame(np.eye(len(ANALYSIS_VARS)), index=ANALYSIS_VARS, columns=ANALYSIS_VARS, dtype=float)
+
+    for i, left in enumerate(ANALYSIS_VARS):
+        for j in range(i + 1, len(ANALYSIS_VARS)):
+            right = ANALYSIS_VARS[j]
+            pair = data[[left, right]].copy()
+            pair[WEIGHT_VAR] = weights
+            pair = pair.dropna()
+            pair = pair[pair[WEIGHT_VAR] > 0]
+
+            if pair.empty:
+                value = np.nan
+            else:
+                x = pair[left].to_numpy(dtype=float)
+                y = pair[right].to_numpy(dtype=float)
+                w = pair[WEIGHT_VAR].to_numpy(dtype=float)
+                mean_x = weighted_mean(x, w)
+                mean_y = weighted_mean(y, w)
+                cov_xy = np.sum(w * (x - mean_x) * (y - mean_y)) / np.sum(w)
+                var_x = np.sum(w * (x - mean_x) ** 2) / np.sum(w)
+                var_y = np.sum(w * (y - mean_y) ** 2) / np.sum(w)
+                denom = np.sqrt(var_x * var_y)
+                value = np.nan if denom == 0 else cov_xy / denom
+
+            corr.loc[left, right] = value
+            corr.loc[right, left] = value
+
+    return corr
+
+
 def regression_scores(
     clean_data: pd.DataFrame,
+    case_weights: pd.Series,
     corr: np.ndarray,
     rotated_loadings: np.ndarray,
 ) -> pd.DataFrame:
-    means = clean_data[ANALYSIS_VARS].mean()
-    stds = clean_data[ANALYSIS_VARS].std(ddof=0)
+    means = {}
+    stds = {}
+    for column in ANALYSIS_VARS:
+        valid = clean_data[column].notna() & case_weights.notna() & (case_weights > 0)
+        values = clean_data.loc[valid, column].to_numpy(dtype=float)
+        weights = case_weights.loc[valid].to_numpy(dtype=float)
+        means[column] = weighted_mean(values, weights)
+        stds[column] = weighted_std(values, weights)
+
+    means = pd.Series(means)
+    stds = pd.Series(stds)
     standardized = (clean_data[ANALYSIS_VARS] - means) / stds
     complete_case_mask = standardized.notna().all(axis=1)
 
@@ -129,12 +182,21 @@ def blank_small_loadings(loadings: pd.DataFrame, threshold: float = 0.3) -> pd.D
 
 
 def build_means_table(df: pd.DataFrame) -> pd.DataFrame:
-    means_table = (
-        df.groupby("S025", dropna=False)[["TradAgg", "SurvSAgg"]]
-        .mean()
-        .rename(columns={"TradAgg": "Mean TradAgg", "SurvSAgg": "Mean SurvSAgg"})
-    )
-    return means_table
+    rows = []
+    for s025, group in df.groupby("S025", dropna=False):
+        weights = pd.to_numeric(group[WEIGHT_VAR], errors="coerce")
+        entry: dict[str, float | int] = {"S025": s025}
+        for source, label in [("TradAgg", "Mean TradAgg"), ("SurvSAgg", "Mean SurvSAgg")]:
+            valid = group[source].notna() & weights.notna() & (weights > 0)
+            if valid.any():
+                values = group.loc[valid, source].to_numpy(dtype=float)
+                current_weights = weights.loc[valid].to_numpy(dtype=float)
+                entry[label] = weighted_mean(values, current_weights)
+            else:
+                entry[label] = np.nan
+        rows.append(entry)
+
+    return pd.DataFrame(rows).set_index("S025")
 
 
 def main() -> None:
@@ -142,13 +204,14 @@ def main() -> None:
 
     raw = pd.read_csv(input_path, low_memory=False, na_values=["", " "])
     clean = apply_spss_missing_values(raw)
+    case_weights = clean[WEIGHT_VAR]
 
-    corr_df = clean[ANALYSIS_VARS].corr()
+    corr_df = weighted_pairwise_correlation_matrix(clean[ANALYSIS_VARS], case_weights)
     eigenvalues, initial_loadings = pca_loadings(corr_df.to_numpy(), n_factors=2)
     rotated_loadings, _ = varimax_kaiser(initial_loadings, q=25)
     rotated_loadings, factor_map = orient_rotated_factors(rotated_loadings)
 
-    scores = regression_scores(clean, corr_df.to_numpy(), rotated_loadings)
+    scores = regression_scores(clean, case_weights, corr_df.to_numpy(), rotated_loadings)
     renamed_scores = pd.DataFrame(index=scores.index)
     renamed_scores["survself"] = scores.iloc[:, factor_map["survself"]]
     renamed_scores["tradrat5"] = scores.iloc[:, factor_map["tradrat5"]]
