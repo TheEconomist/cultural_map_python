@@ -146,15 +146,6 @@ def regression_scores(
     return score_array
 
 
-def blank_small_loadings(loadings: pd.DataFrame, threshold: float = 0.3) -> pd.DataFrame:
-    formatted = loadings.copy()
-    for column in formatted.columns:
-        formatted[column] = formatted[column].map(
-            lambda value: "" if pd.notna(value) and abs(value) < threshold else f"{value:.6f}"
-        )
-    return formatted
-
-
 def build_means_table(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([
         df.dropna(subset=["TradAgg", WEIGHT_VAR])
@@ -169,6 +160,9 @@ def build_means_table(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_cultural_map(input_path: str, output_path: str) -> None:
+    """
+    A faithful reproduction of the SPSS cultural map syntax found on the WVS website.
+    """
     df = pd.read_csv(input_path, low_memory=False, na_values=["", " "])
 
     """
@@ -208,7 +202,7 @@ def build_cultural_map(input_path: str, output_path: str) -> None:
     """
     MEANS TABLES=TradAgg SurvSAgg BY S025 /CELLS MEAN.
     """
-    means_table = build_means_table(df).dropna(how="any")
+    means_table = build_means_table(df)
     means_table.to_csv(output_path)
 
 

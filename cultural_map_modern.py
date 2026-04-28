@@ -15,7 +15,8 @@ OUTPUT_PATH = Path("output/cultural_map_modern.csv")
 
 def build_cultural_map() -> None:
     """
-    Codex's take on a new, modern implementation to build the cultural map.
+    Codex's take on a new, modern implementation of the cultural map.
+    Produces different results.
     """
     df = pd.read_csv(INPUT_PATH, low_memory=False, na_values=["", " "])
     df[WEIGHT_VAR] = pd.to_numeric(df[WEIGHT_VAR], errors="coerce")
