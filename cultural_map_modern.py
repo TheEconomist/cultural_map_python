@@ -3,9 +3,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from factor_analyzer.rotator import Rotator
-from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-
+from weightedpca import WeightedPCA
 
 ANALYSIS_VARS = ["A008", "A165", "E018", "E025", "F063", "F118", "F120", "G006", "Y002", "Y003"]
 WEIGHT_VAR = "S017"
@@ -33,8 +32,8 @@ def build_cultural_map() -> None:
     scaler.fit(analysis[ANALYSIS_VARS], sample_weight=analysis[WEIGHT_VAR])
     scaled = scaler.transform(analysis[ANALYSIS_VARS])
 
-    pca = PCA(n_components=2, random_state=0)
-    pca.fit(scaled)
+    pca = WeightedPCA(n_components=2)
+    pca.fit(scaled, sample_weight=analysis[WEIGHT_VAR])
     loadings_array = pca.components_.T * np.sqrt(pca.explained_variance_)
     rotated_loadings = Rotator(method="varimax").fit_transform(loadings_array)
     rotation = np.linalg.lstsq(loadings_array, rotated_loadings, rcond=None)[0]
