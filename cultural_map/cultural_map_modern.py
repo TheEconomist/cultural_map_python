@@ -9,8 +9,8 @@ from weightedpca import WeightedPCA
 ANALYSIS_VARS = ["A008", "A165", "E018", "E025", "F063", "F118", "F120", "G006", "Y002", "Y003"]
 WEIGHT_VAR = "S017"
 GROUP_VAR = "S025"
-INPUT_PATH = Path("data/wvs_evs_time_series.csv")
-OUTPUT_PATH = Path("output/cultural_map_modern.csv")
+INPUT_PATH = Path("../data/wvs_evs_time_series.csv")
+OUTPUT_PATH = Path("../output/cultural_map_modern.csv")
 
 
 def build_modern_cultural_map() -> None:
