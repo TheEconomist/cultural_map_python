@@ -13,7 +13,7 @@ INPUT_PATH = Path("data/wvs_evs_time_series.csv")
 OUTPUT_PATH = Path("output/cultural_map_modern.csv")
 
 
-def build_cultural_map() -> None:
+def build_modern_cultural_map() -> None:
     """
     Codex's take on a new, modern implementation of the cultural map.
     Produces different results.
@@ -80,4 +80,4 @@ def build_cultural_map() -> None:
 
 
 if __name__ == "__main__":
-    build_cultural_map()
+    build_modern_cultural_map()
