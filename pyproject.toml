@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cultural-map"
+version = "0.1.0"
+description = "Original WVS cultural map implementation reproduced in Python."
+readme = { text = "Python package for reproducing the original WVS cultural map methodology.", content-type = "text/plain" }
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+    "numpy",
+    "pandas",
+]
+
+[tool.setuptools]
+packages = ["cultural_map"]
