@@ -147,16 +147,21 @@ def regression_scores(
 
 
 def build_means_table(df: pd.DataFrame) -> pd.DataFrame:
-    return pd.concat([
-        df.dropna(subset=["TradAgg", WEIGHT_VAR])
-        .groupby("S025")
-        .apply(lambda x: np.average(x["TradAgg"], weights=x[WEIGHT_VAR]))
-        .rename("Mean TradAgg"),
-        df.dropna(subset=["SurvSAgg", WEIGHT_VAR])
-        .groupby("S025")
-        .apply(lambda x: np.average(x["SurvSAgg"], weights=x[WEIGHT_VAR]))
-        .rename("Mean SurvSAgg"),
-    ], axis=1)
+    rows = []
+    for s025, group in df.groupby("S025", dropna=False):
+        weights = pd.to_numeric(group[WEIGHT_VAR], errors="coerce")
+        entry: dict[str, float | int] = {"S025": s025}
+        for source, label in [("TradAgg", "Mean TradAgg"), ("SurvSAgg", "Mean SurvSAgg")]:
+            valid = group[source].notna() & weights.notna() & (weights > 0)
+            if valid.any():
+                values = group.loc[valid, source].to_numpy(dtype=float)
+                current_weights = weights.loc[valid].to_numpy(dtype=float)
+                entry[label] = weighted_mean(values, current_weights)
+            else:
+                entry[label] = np.nan
+        rows.append(entry)
+
+    return pd.DataFrame(rows).set_index("S025")
 
 
 def build_cultural_map(df: pd.DataFrame) -> pd.DataFrame:
@@ -202,7 +207,7 @@ def build_cultural_map(df: pd.DataFrame) -> pd.DataFrame:
     MEANS TABLES=TradAgg SurvSAgg BY S025 /CELLS MEAN.
     """
     means_table = build_means_table(df)
-    return means_table
+    return means_table.dropna()
 
 
 if __name__ == "__main__":
