@@ -164,7 +164,7 @@ def build_means_table(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index("S025")
 
 
-def build_cultural_map(df: pd.DataFrame) -> pd.DataFrame:
+def build_cultural_map(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     A faithful reproduction of the SPSS cultural map syntax found on the WVS website.
     """
@@ -207,10 +207,10 @@ def build_cultural_map(df: pd.DataFrame) -> pd.DataFrame:
     MEANS TABLES=TradAgg SurvSAgg BY S025 /CELLS MEAN.
     """
     means_table = build_means_table(df)
-    return means_table.dropna()
+    return df, means_table.dropna()
 
 
 if __name__ == "__main__":
-    df = pd.read_csv("../data/wvs_evs_time_series.csv", low_memory=False, na_values=["", " "])
-    cultural_map = build_cultural_map(df)
+    wvs_evs_time_series = pd.read_csv("../data/wvs_evs_time_series.csv", low_memory=False, na_values=["", " "])
+    _, cultural_map = build_cultural_map(wvs_evs_time_series)
     cultural_map.to_csv("../output/cultural_map.csv")
