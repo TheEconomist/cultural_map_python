@@ -62,6 +62,12 @@ def varimax_kaiser(
 
 
 def orient_rotated_factors(rotated_loadings: np.ndarray) -> tuple[np.ndarray, dict[str, int]]:
+    """
+    I used:
+    - Y002 to identify which rotated factor was the survself axis
+    - F118 to choose its sign
+    - E018 to choose the sign of the other axis
+    """
     y002_index = ANALYSIS_VARS.index("Y002")
     surv_idx = int(np.argmax(np.abs(rotated_loadings[y002_index, :])))
     trad_idx = 1 - surv_idx
@@ -70,7 +76,7 @@ def orient_rotated_factors(rotated_loadings: np.ndarray) -> tuple[np.ndarray, di
 
     if oriented[ANALYSIS_VARS.index("F118"), surv_idx] < 0:
         oriented[:, surv_idx] *= -1
-    if oriented[ANALYSIS_VARS.index("A008"), trad_idx] < 0:
+    if oriented[ANALYSIS_VARS.index("E018"), trad_idx] < 0:
         oriented[:, trad_idx] *= -1
 
     return oriented, {"survself": surv_idx, "tradrat5": trad_idx}
